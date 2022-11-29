@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter
 
 SECRET_KEY = "6e372d3ab814222da7e862d434ad91d38ae28c73c3fbb8c05341fcfbdde34c2c"
@@ -19,6 +18,7 @@ fake_users_db = {
 }
 
 router = APIRouter()
+
 
 @router.get("/users/me/")
 async def read_users_me():
