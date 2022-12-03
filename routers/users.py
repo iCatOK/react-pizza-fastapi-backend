@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from fastapi import Depends, FastAPI, HTTPException, status, APIRouter
+from fastapi import Depends, FastAPI, status, APIRouter, HTTPException
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -8,6 +8,7 @@ from models.auth import User, UserInDB, Token, TokenData
 from database.config import async_session
 from database.repositories import UserRepository
 from database.models.user import User as DbUser
+from exceptions.exceptions import AuthExceptions
 
 
 SECRET_KEY = "6e372d3ab814222da7e862d434ad91d38ae28c73c3fbb8c05341fcfbdde34c2c"
@@ -35,9 +36,7 @@ async def get_user(username: str):
 
 async def authenticate_user(username: str, password: str):
     user = await get_user(username)
-    if not user:
-        return False
-    if not verify_password(password, user.hashed_password):
+    if not user or verify_password(password, user.hashed_password):
         return False
     return user
 
@@ -54,22 +53,17 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> DbUser:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
-            raise credentials_exception
+            raise AuthExceptions.credentials_exception
         token_data = TokenData(username=username)
     except JWTError:
-        raise credentials_exception
+        raise AuthExceptions.credentials_exception
     db_user: DbUser  = await get_user(username=token_data.username)
     if db_user is None:
-        raise credentials_exception
+        raise AuthExceptions.credentials_exception
     out_user: User = User.from_db_model(db_user)
     return out_user
 
@@ -79,11 +73,7 @@ router = APIRouter()
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     user = await authenticate_user(form_data.username, form_data.password)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise AuthExceptions.unauthorized_exception
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
@@ -97,6 +87,7 @@ async def register_user(username: str, password: str, full_name: str):
         async with session.begin():
             user_repo = UserRepository(session)
             return await user_repo.create_user(username, hashed_password, full_name)
+
 
 @router.get("/users/me/", response_model=User)
 async def read_users_me(current_user: User = Depends(get_current_user)):
